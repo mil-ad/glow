@@ -365,18 +365,11 @@ func executeStreaming(src *source) error {
 
 	cfg.ShowLineNumbers = showLineNumbers
 	cfg.GlamourMaxWidth = width
-	cfg.EnableMouse = mouse
 	cfg.PreserveNewLines = preserveNewLines
 
-	// Run streaming program
-	p, getFinalContent := ui.NewStreamingProgram(cfg, src.reader)
+	p, _ := ui.NewStreamingProgram(cfg, src.reader)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("unable to run streaming program: %w", err)
-	}
-
-	// Flush final content to scrollback buffer
-	if content := getFinalContent(); content != "" {
-		fmt.Print(content)
 	}
 
 	return nil
