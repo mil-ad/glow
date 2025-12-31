@@ -1,4 +1,4 @@
-module github.com/charmbracelet/glow/v2
+module github.com/mil-ad/glow/v2
 
 go 1.25.9
 

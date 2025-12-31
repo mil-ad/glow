@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
-	"github.com/charmbracelet/glow/v2/utils"
+	"github.com/mil-ad/glow/v2/utils"
 	"github.com/charmbracelet/lipgloss"
 	te "github.com/muesli/termenv"
 )
