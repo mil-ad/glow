@@ -42,6 +42,7 @@ var (
 	showLineNumbers  bool
 	preserveNewLines bool
 	mouse            bool
+	streaming        bool
 
 	rootCmd = &cobra.Command{
 		Use:   "glow [SOURCE|DIR]",
@@ -227,6 +228,10 @@ func execute(cmd *cobra.Command, args []string) error {
 	} else if yes {
 		src := &source{reader: os.Stdin}
 		defer src.reader.Close() //nolint:errcheck
+		// Use streaming mode for piped input (can be disabled with --stream=false)
+		if streaming || !cmd.Flags().Changed("stream") {
+			return executeStreaming(src)
+		}
 		return executeCLI(cmd, src, os.Stdout)
 	}
 
@@ -341,6 +346,37 @@ func executeCLI(cmd *cobra.Command, src *source, w io.Writer) error {
 	}
 }
 
+func executeStreaming(src *source) error {
+	// Read environment to get debugging stuff
+	cfg, err := env.ParseAs[ui.Config]()
+	if err != nil {
+		return fmt.Errorf("error parsing config: %v", err)
+	}
+
+	// use style set in env, or auto if unset
+	if err := validateStyle(cfg.GlamourStyle); err != nil {
+		cfg.GlamourStyle = style
+	}
+
+	cfg.ShowLineNumbers = showLineNumbers
+	cfg.GlamourMaxWidth = width
+	cfg.EnableMouse = mouse
+	cfg.PreserveNewLines = preserveNewLines
+
+	// Run streaming program
+	p, getFinalContent := ui.NewStreamingProgram(cfg, src.reader)
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("unable to run streaming program: %w", err)
+	}
+
+	// Flush final content to scrollback buffer
+	if content := getFinalContent(); content != "" {
+		fmt.Print(content)
+	}
+
+	return nil
+}
+
 func runTUI(path string, content string) error {
 	// Read environment to get debugging stuff
 	cfg, err := env.ParseAs[ui.Config]()
@@ -404,6 +440,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&preserveNewLines, "preserve-new-lines", "n", false, "preserve newlines in the output")
 	rootCmd.Flags().BoolVarP(&mouse, "mouse", "m", false, "enable mouse wheel (TUI-mode only)")
 	_ = rootCmd.Flags().MarkHidden("mouse")
+	rootCmd.Flags().BoolVarP(&streaming, "stream", "S", false, "read streaming input from stdin")
 
 	// Config bindings
 	_ = viper.BindPFlag("pager", rootCmd.Flags().Lookup("pager"))
