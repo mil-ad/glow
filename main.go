@@ -18,10 +18,10 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
-	"github.com/mil-ad/glow/v2/ui"
-	"github.com/mil-ad/glow/v2/utils"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
+	"github.com/mil-ad/glow/v2/ui"
+	"github.com/mil-ad/glow/v2/utils"
 	gap "github.com/muesli/go-app-paths"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -367,9 +367,19 @@ func executeStreaming(src *source) error {
 	cfg.GlamourMaxWidth = width
 	cfg.PreserveNewLines = preserveNewLines
 
-	p, _ := ui.NewStreamingProgram(cfg, src.reader)
+	p, finalContent := ui.NewStreamingProgram(cfg, src.reader)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("unable to run streaming program: %w", err)
+	}
+
+	// The TUI rendered to stderr and blanks itself on exit; print the full
+	// content to stdout so the complete render lands in the scrollback buffer
+	// (the inline renderer can't scroll a frame taller than the terminal).
+	if content := finalContent(); content != "" {
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		_, _ = io.WriteString(os.Stdout, content)
 	}
 
 	return nil
