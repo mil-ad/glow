@@ -13,13 +13,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"mvdan.cc/sh/v3/shell"
+
 	"github.com/caarlos0/env/v11"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
-	"github.com/charmbracelet/glow/v2/ui"
-	"github.com/charmbracelet/glow/v2/utils"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
+	"github.com/mil-ad/glow/v2/ui"
+	"github.com/mil-ad/glow/v2/utils"
 	gap "github.com/muesli/go-app-paths"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -42,6 +44,7 @@ var (
 	showLineNumbers  bool
 	preserveNewLines bool
 	mouse            bool
+	streaming        bool
 
 	rootCmd = &cobra.Command{
 		Use:   "glow [SOURCE|DIR]",
@@ -227,6 +230,10 @@ func execute(cmd *cobra.Command, args []string) error {
 	} else if yes {
 		src := &source{reader: os.Stdin}
 		defer src.reader.Close() //nolint:errcheck
+		// Use streaming mode for piped input (can be disabled with --stream=false)
+		if streaming || !cmd.Flags().Changed("stream") {
+			return executeStreaming(src)
+		}
 		return executeCLI(cmd, src, os.Stdout)
 	}
 
@@ -319,8 +326,11 @@ func executeCLI(cmd *cobra.Command, src *source, w io.Writer) error {
 			pagerCmd = "less -r"
 		}
 
-		pa := strings.Split(pagerCmd, " ")
-		c := exec.Command(pa[0], pa[1:]...) //nolint:gosec
+		fields, err := shell.Fields(pagerCmd, os.Getenv)
+		if err != nil || len(fields) == 0 {
+			return fmt.Errorf("unable to parse PAGER command: %s", pagerCmd)
+		}
+		c := exec.Command(fields[0], fields[1:]...) //nolint:gosec
 		c.Stdin = strings.NewReader(out)
 		c.Stdout = os.Stdout
 		if err := c.Run(); err != nil {
@@ -339,6 +349,40 @@ func executeCLI(cmd *cobra.Command, src *source, w io.Writer) error {
 		}
 		return nil
 	}
+}
+
+func executeStreaming(src *source) error {
+	// Read environment to get debugging stuff
+	cfg, err := env.ParseAs[ui.Config]()
+	if err != nil {
+		return fmt.Errorf("error parsing config: %v", err)
+	}
+
+	// use style set in env, or auto if unset
+	if err := validateStyle(cfg.GlamourStyle); err != nil {
+		cfg.GlamourStyle = style
+	}
+
+	cfg.ShowLineNumbers = showLineNumbers
+	cfg.GlamourMaxWidth = width
+	cfg.PreserveNewLines = preserveNewLines
+
+	p, finalContent := ui.NewStreamingProgram(cfg, src.reader)
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("unable to run streaming program: %w", err)
+	}
+
+	// The TUI rendered to stderr and blanks itself on exit; print the full
+	// content to stdout so the complete render lands in the scrollback buffer
+	// (the inline renderer can't scroll a frame taller than the terminal).
+	if content := finalContent(); content != "" {
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		_, _ = io.WriteString(os.Stdout, content)
+	}
+
+	return nil
 }
 
 func runTUI(path string, content string) error {
@@ -404,6 +448,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&preserveNewLines, "preserve-new-lines", "n", false, "preserve newlines in the output")
 	rootCmd.Flags().BoolVarP(&mouse, "mouse", "m", false, "enable mouse wheel (TUI-mode only)")
 	_ = rootCmd.Flags().MarkHidden("mouse")
+	rootCmd.Flags().BoolVarP(&streaming, "stream", "S", false, "read streaming input from stdin")
 
 	// Config bindings
 	_ = viper.BindPFlag("pager", rootCmd.Flags().Lookup("pager"))
